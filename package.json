@@ -1,0 +1,24 @@
+{
+  "name": "xianji",
+  "private": true,
+  "version": "0.1.0",
+  "description": "闲记 — 单用户自托管待办与快捷笔记，数据存于飞书多维表格",
+  "packageManager": "pnpm@9.7.0",
+  "scripts": {
+    "build": "pnpm --filter @xianji/core build && pnpm --filter @xianji/web build",
+    "dev": "pnpm --filter @xianji/server-node dev",
+    "dev:web": "pnpm --filter @xianji/web dev",
+    "start": "pnpm --filter @xianji/server-node start",
+    "typecheck": "tsc -b packages/core apps/web apps/server-node",
+    "test": "pnpm --filter @xianji/core test"
+  },
+  "dependencies": {
+    "@xianji/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
