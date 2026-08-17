@@ -1,6 +1,9 @@
 /**
- * 主界面骨架：左侧清单栏 + 右侧内容区；移动端为抽屉侧栏。
- * 视图：'all' | { list: id } | 'notes'
+ * 主界面骨架（三栏式，任务与笔记同构）：
+ *   左栏 清单导航（移动端抽屉）
+ *   中栏 任务列表 / 快捷笔记列表
+ *   右栏 详情（桌面常驻：任务详情或笔记详情；移动端为从下往上的底部抽屉）
+ * 接口请求在途时顶部展示进度条；首屏加载展示骨架屏过渡。
  */
 import * as React from 'react';
 import {
@@ -15,20 +18,23 @@ import {
   Sun,
   X,
 } from 'lucide-react';
-import { api } from '../lib/api';
 import { useData } from '../lib/store';
+import { api } from '../lib/api';
 import { cn } from '../lib/cn';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Spinner } from './ui/misc';
+import { LoadingBar, NotesSkeleton, Spinner, TaskListSkeleton } from './ui/misc';
 import { TaskListView } from './TaskListView';
+import { TaskDetailPanel, TaskDetailPlaceholder } from './TaskDetailPanel';
+import { NoteDetailPanel, NoteDetailPlaceholder } from './NoteDetailPanel';
 import { NotesView } from './NotesView';
+import { CreateFab } from './CreateSheet';
 import { ConfirmDialog } from './ui/misc';
 
 export type View = { kind: 'all' } | { kind: 'list'; listId: string } | { kind: 'notes' };
 
 export function AppShell({ onLogout }: { onLogout: () => void }) {
-  const { data, loading, error, lastUpdated, refresh, mutateLocal } = useData();
+  const { data, loading, pending, error, lastUpdated, refresh, mutateLocal } = useData();
   const [view, setView] = React.useState<View>({ kind: 'all' });
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [dark, setDark] = React.useState(() => localStorage.getItem('xianji.theme') === 'dark');
@@ -36,20 +42,40 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
   const [newListName, setNewListName] = React.useState('');
   const [deletingList, setDeletingList] = React.useState<string | null>(null);
   const [busyList, setBusyList] = React.useState(false);
+  const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(null);
+  const [selectedNoteId, setSelectedNoteId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
     localStorage.setItem('xianji.theme', dark ? 'dark' : 'light');
   }, [dark]);
 
-  // 首个清单作为默认视图
+  // 切视图时取消另一侧的选中
   React.useEffect(() => {
-    if (data && view.kind === 'all' && localStorage.getItem('xianji.view') === null && data.lists.length > 0) {
-      // 保持「全部」为默认，不强制跳转
-    }
-  }, [data, view.kind]);
+    if (view.kind === 'notes') setSelectedTaskId(null);
+    else setSelectedNoteId(null);
+  }, [view.kind]);
 
   const lists = data?.lists ?? [];
+  const selectedTask = selectedTaskId ? (data?.tasks.find((t) => t.id === selectedTaskId) ?? null) : null;
+  const selectedNote = selectedNoteId ? (data?.notes.find((n) => n.id === selectedNoteId) ?? null) : null;
+
+  // 任务与笔记互斥选中（详情面板同一时刻只展示一个）
+  const selectTask = React.useCallback((id: string | null) => {
+    setSelectedTaskId(id);
+    if (id !== null) setSelectedNoteId(null);
+  }, []);
+  const selectNote = React.useCallback((id: string | null) => {
+    setSelectedNoteId(id);
+    if (id !== null) setSelectedTaskId(null);
+  }, []);
+
+  // 「全部」视图尾部展示的速记（按修改时间倒序）
+  const sortedNotes = React.useMemo(
+    () => (data ? [...data.notes].sort((a, b) => b.modifiedAt - a.modifiedAt) : []),
+    [data],
+  );
+
   const counts = React.useMemo(() => {
     const m = new Map<string, number>();
     for (const t of data?.tasks ?? []) {
@@ -168,7 +194,14 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
 
       <div className="border-t p-3 text-xs text-muted-foreground">
         <div className="flex items-center justify-between">
-          <span>{lastUpdated ? `更新于 ${new Date(lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '—'}</span>
+          <span className="flex items-center gap-1.5">
+            {pending && <Spinner className="h-3 w-3" />}
+            {lastUpdated
+              ? `更新于 ${new Date(lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+              : pending
+                ? '同步中…'
+                : '—'}
+          </span>
           <button className="hover:text-foreground" onClick={() => void refresh(true)} title="立即刷新">
             <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
           </button>
@@ -182,16 +215,19 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div className="flex h-full">
-      {/* 桌面侧栏 */}
+      <LoadingBar active={pending} />
+
+      {/* 左栏：桌面侧栏 */}
       <div className="hidden md:flex">{sidebar}</div>
-      {/* 移动抽屉 */}
+      {/* 左栏：移动抽屉 */}
       {drawerOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
+          <div className="absolute inset-0 animate-fade-in-backdrop bg-black/50" onClick={() => setDrawerOpen(false)} />
           <div className="absolute inset-y-0 left-0 shadow-xl">{sidebar}</div>
         </div>
       )}
 
+      {/* 中栏：内容区 */}
       <main className="relative flex min-w-0 flex-1 flex-col">
         {/* 移动顶栏 */}
         <div className="flex items-center gap-2 border-b px-3 py-2 md:hidden">
@@ -199,7 +235,11 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
             <Menu className="h-5 w-5" />
           </Button>
           <span className="font-semibold">
-            {view.kind === 'all' ? '全部' : view.kind === 'notes' ? '快捷笔记' : lists.find((l) => l.id === view.listId)?.name ?? '…'}
+            {view.kind === 'all'
+              ? '全部'
+              : view.kind === 'notes'
+                ? '快捷笔记'
+                : (lists.find((l) => l.id === view.listId)?.name ?? '…')}
           </span>
         </div>
 
@@ -214,16 +254,88 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {loading && !data ? (
-            <div className="flex h-full items-center justify-center">
-              <Spinner className="h-6 w-6" />
-            </div>
+            view.kind === 'notes' ? (
+              <NotesSkeleton />
+            ) : (
+              <TaskListSkeleton />
+            )
           ) : view.kind === 'notes' ? (
-            <NotesView />
+            <NotesView selectedNoteId={selectedNoteId} onSelectNote={selectNote} />
           ) : (
-            <TaskListView view={view} />
+            <TaskListView
+              view={view}
+              selectedTaskId={selectedTaskId}
+              onSelectTask={selectTask}
+              notes={view.kind === 'all' ? sortedNotes : []}
+              selectedNoteId={selectedNoteId}
+              onSelectNote={selectNote}
+            />
           )}
         </div>
       </main>
+
+      {/* 右栏：详情（桌面常驻第三栏）—— 依选中项决定任务/笔记详情，「全部」视图两者皆可 */}
+      <aside className="hidden w-[22rem] shrink-0 border-l lg:flex xl:w-[26rem]">
+        {selectedNote ? (
+          <NoteDetailPanel
+            key={selectedNote.id}
+            note={selectedNote}
+            onClose={() => setSelectedNoteId(null)}
+            onDeleted={() => setSelectedNoteId(null)}
+          />
+        ) : selectedTask ? (
+          <TaskDetailPanel
+            key={selectedTask.id}
+            task={selectedTask}
+            onClose={() => setSelectedTaskId(null)}
+            onDeleted={() => setSelectedTaskId(null)}
+            onMoved={(id, listId) => {
+              // 从当前清单视图移走后，该视图不再包含此任务
+              if (view.kind === 'list' && view.listId !== listId) setSelectedTaskId(null);
+            }}
+          />
+        ) : view.kind === 'notes' ? (
+          <NoteDetailPlaceholder />
+        ) : (
+          <TaskDetailPlaceholder />
+        )}
+      </aside>
+
+      {/* 右栏：移动端从下往上的底部抽屉 */}
+      {(selectedTask || selectedNote) && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div
+            className="absolute inset-0 animate-fade-in-backdrop bg-black/50"
+            onClick={() => {
+              setSelectedTaskId(null);
+              setSelectedNoteId(null);
+            }}
+          />
+          <div className="absolute inset-x-0 bottom-0 flex max-h-[88vh] flex-col animate-slide-in-up overflow-hidden rounded-t-2xl shadow-xl">
+            {selectedNote ? (
+              <NoteDetailPanel
+                key={selectedNote.id}
+                note={selectedNote}
+                onClose={() => setSelectedNoteId(null)}
+                onDeleted={() => setSelectedNoteId(null)}
+              />
+            ) : (
+              <TaskDetailPanel
+                key={selectedTask!.id}
+                task={selectedTask!}
+                onClose={() => setSelectedTaskId(null)}
+                onDeleted={() => setSelectedTaskId(null)}
+                onMoved={(id, listId) => {
+                  if (view.kind === 'list' && view.listId !== listId) setSelectedTaskId(null);
+                }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 移动端悬浮新建入口（任务 / 笔记） */}
+      <CreateFab defaultListId={view.kind === 'list' ? view.listId : lists[0]?.id} />
 
       <ConfirmDialog
         open={deletingList !== null}
@@ -294,9 +406,7 @@ function SideItem({
             <span className="text-muted-foreground">{icon}</span>
             <span className="truncate">{label}</span>
           </button>
-          {badge ? (
-            <span className="text-xs text-muted-foreground group-hover:hidden">{badge}</span>
-          ) : null}
+          {badge ? <span className="text-xs text-muted-foreground group-hover:hidden">{badge}</span> : null}
           {onRename && (
             <button
               className="hidden shrink-0 text-muted-foreground hover:text-foreground group-hover:block"

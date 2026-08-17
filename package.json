@@ -8,6 +8,7 @@
     "build": "pnpm --filter @xianji/core build && pnpm --filter @xianji/web build",
     "dev": "pnpm --filter @xianji/server-node dev",
     "dev:web": "pnpm --filter @xianji/web dev",
+    "dev:all": "bash scripts/dev.sh",
     "start": "pnpm --filter @xianji/server-node start",
     "typecheck": "tsc -b packages/core apps/web apps/server-node",
     "test": "pnpm --filter @xianji/core test"

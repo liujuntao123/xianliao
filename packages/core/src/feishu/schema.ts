@@ -2,11 +2,13 @@
  * Base 数据建模（ADR-0002）：四张中文数据表 + 双向关联。
  *
  *  清单：名称
- *  任务：标题 / 已完成 / 截止日期 / 所属清单（关联→清单）
+ *  任务：标题 / 描述 / 已完成 / 截止日期 / 标签（多选）/ 所属清单（关联→清单）
  *  子任务：标题 / 已完成 / 所属任务（关联→任务）
- *  笔记：标题 / 正文
+ *  笔记：标题 / 正文 / 标签（多选）
  *
- * 字段类型枚举（v1）：1 多行文本、5 日期、7 复选框、21 双向关联。
+ * 字段类型枚举：1 多行文本、4 多选、5 日期、7 复选框、21 双向关联。
+ * 标签用多选字段而非独立标签表：标签即字符串，写入新选项时飞书自动创建，
+ * 任务与笔记共享同一套标签命名空间（按名称相等）。
  * 初始化幂等：已存在的表/字段跳过；缺失的补建。顺手清掉新建 Base
  * 自带的空默认表，并写入默认清单「收集箱」。
  */
@@ -16,9 +18,10 @@ import { FeishuClient } from './client';
 export const BASE_NAME = '闲记';
 export const DEFAULT_LIST_NAME = '收集箱';
 
-// v1 字段类型枚举
+// 字段类型枚举
 export const FieldType = {
   Text: 1,
+  MultiSelect: 4,
   DateTime: 5,
   Checkbox: 7,
   TwoWayLink: 21,
@@ -45,8 +48,10 @@ export const TABLES: Record<'lists' | 'tasks' | 'subtasks' | 'notes', TableDef> 
     name: '任务',
     fields: (resolve) => [
       { field_name: '标题', type: FieldType.Text },
+      { field_name: '描述', type: FieldType.Text },
       { field_name: '已完成', type: FieldType.Checkbox },
       { field_name: '截止日期', type: FieldType.DateTime, property: { date_formatter: 'yyyy-MM-dd' } },
+      { field_name: '标签', type: FieldType.MultiSelect },
       { field_name: '所属清单', type: FieldType.TwoWayLink, property: { table_id: resolve('清单') } },
     ],
   },
@@ -63,6 +68,7 @@ export const TABLES: Record<'lists' | 'tasks' | 'subtasks' | 'notes', TableDef> 
     fields: () => [
       { field_name: '标题', type: FieldType.Text },
       { field_name: '正文', type: FieldType.Text },
+      { field_name: '标签', type: FieldType.MultiSelect },
     ],
   },
 };
@@ -71,8 +77,10 @@ export const TABLES: Record<'lists' | 'tasks' | 'subtasks' | 'notes', TableDef> 
 export const F = {
   listName: '名称',
   taskTitle: '标题',
+  description: '描述',
   completed: '已完成',
   dueDate: '截止日期',
+  tags: '标签',
   taskList: '所属清单',
   subtaskTask: '所属任务',
   noteTitle: '标题',

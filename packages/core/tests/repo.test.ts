@@ -37,8 +37,10 @@ describe('Repo.getAll 映射', () => {
           record_id: 'recT1',
           fields: {
             标题: [{ type: 'text', text: '写' }, { type: 'text', text: '周报' }],
+            描述: '本周工作汇总',
             已完成: false,
             截止日期: 1700179200000,
+            标签: ['工作', '周报'],
             所属清单: [{ record_id: 'recL1' }],
           },
           created_time: '1700000001',
@@ -59,7 +61,11 @@ describe('Repo.getAll 映射', () => {
       '/tables/tblN/records': [
         {
           record_id: 'recN1',
-          fields: { 标题: '想法', 正文: '正文内容' },
+          fields: {
+            标题: '想法',
+            正文: '正文内容',
+            标签: [{ type: 'text', text: '灵感' }, { type: 'text', text: '灵感' }, ''],
+          },
           created_time: '1700000000',
           last_modified_time: '1700000500',
         },
@@ -78,14 +84,76 @@ describe('Repo.getAll 映射', () => {
       id: 'recT1',
       listId: 'recL1',
       title: '写周报',
+      description: '本周工作汇总',
       completed: false,
       dueDate: 1700179200000,
+      tags: ['工作', '周报'],
       createdAt: 1700000001000, // 秒 → 毫秒
     });
     expect(data.subtasks).toHaveLength(1);
     expect(data.subtasks[0]?.taskId).toBe('recT1');
+    // 标签读取：段落数组形态 + 去重去空
     expect(data.notes).toEqual([
-      { id: 'recN1', title: '想法', content: '正文内容', modifiedAt: 1700000500000 },
+      { id: 'recN1', title: '想法', content: '正文内容', tags: ['灵感'], modifiedAt: 1700000500000 },
     ]);
+  });
+
+  it('双向关联（type 21）record_ids 形态正确解析，任务不再被静默过滤', async () => {
+    // 线上真实形态：[{ record_ids: [...], table_id, text, text_arr, type }]
+    const client = makeClient({
+      '/tables/tblL/records': [{ record_id: 'recL1', fields: { 名称: '收集箱' } }],
+      '/tables/tblT/records': [
+        {
+          record_id: 'recT1',
+          fields: {
+            标题: '第一个任务',
+            已完成: false,
+            所属清单: [
+              {
+                record_ids: ['recL1'],
+                table_id: 'tblL',
+                text: '收集箱',
+                text_arr: ['收集箱'],
+                type: 'text',
+              },
+            ],
+            // 双向关联自动创建的反向字段（子任务-所属任务），应被忽略
+            '子任务-所属任务': [{ table_id: 'tblS', text_arr: [], type: 'text' }],
+          },
+          created_time: '1700000001',
+        },
+      ],
+      '/tables/tblS/records': [
+        {
+          record_id: 'recS1',
+          fields: {
+            标题: '子任务',
+            已完成: false,
+            所属任务: [{ record_ids: ['recT1'], table_id: 'tblT', text: '第一个任务', type: 'text' }],
+          },
+          created_time: '1700000005',
+        },
+      ],
+    });
+
+    const data = await new Repo(client, 'app1', 'b1').getAll();
+
+    expect(data.tasks).toHaveLength(1);
+    expect(data.tasks[0]).toMatchObject({ id: 'recT1', listId: 'recL1', title: '第一个任务' });
+    expect(data.subtasks).toHaveLength(1);
+    expect(data.subtasks[0]).toMatchObject({ id: 'recS1', taskId: 'recT1' });
+  });
+
+  it('旧格式（字符串数组 / record_id 对象）仍可解析', async () => {
+    const client = makeClient({
+      '/tables/tblL/records': [{ record_id: 'recL1', fields: { 名称: 'A' } }],
+      '/tables/tblT/records': [
+        { record_id: 'recT1', fields: { 标题: 't1', 已完成: false, 所属清单: ['recL1'] } },
+        { record_id: 'recT2', fields: { 标题: 't2', 已完成: false, 所属清单: [{ id: 'recL1' }] } },
+      ],
+    });
+    const data = await new Repo(client, 'app1', 'b1').getAll();
+    expect(data.tasks.map((t) => t.id)).toEqual(['recT1', 'recT2']);
+    expect(data.tasks.every((t) => t.listId === 'recL1')).toBe(true);
   });
 });

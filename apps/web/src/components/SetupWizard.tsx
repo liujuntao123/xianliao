@@ -22,7 +22,7 @@ import { Card, CardContent } from './ui/card';
 import { Spinner } from './ui/misc';
 import { QrCode } from './QrCode';
 
-type Phase = 'choose' | 'scanning' | 'success' | 'manual';
+type Phase = 'choose' | 'scanning' | 'success' | 'manual' | 'configure';
 
 export function SetupWizard({
   status,
@@ -35,7 +35,9 @@ export function SetupWizard({
 }) {
   const credsReady = status.feishu.appIdSet && status.feishu.appSecretSet;
   const baseReady = status.base?.ok === true;
-  const [phase, setPhase] = React.useState<Phase>(credsReady && !baseReady ? 'success' : 'choose');
+  const [phase, setPhase] = React.useState<Phase>(
+    credsReady && !baseReady ? 'configure' : 'choose',
+  );
   const [scanPollResult, setScanPollResult] = React.useState<ScanPoll | null>(null);
   const [checking, setChecking] = React.useState(false);
 
@@ -117,6 +119,7 @@ export function SetupWizard({
       const res = await api.setupInit(body);
       if (res.status === 'success') {
         setScanPollResult(res);
+        setPhase('success');
         if (!res.initError) void checkReady();
       }
     } catch (e) {
@@ -179,6 +182,64 @@ export function SetupWizard({
           </Card>
         )}
 
+        {phase === 'configure' && (
+          <Card>
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-primary" />
+                <h2 className="font-semibold">应用凭证已配置，还差数据表</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                已读取到 FEISHU_APP_ID / FEISHU_APP_SECRET。接下来需要一张多维表格存数据，三种方式任选：
+              </p>
+              {pollError && <p className="text-sm text-destructive">{pollError}</p>}
+              {status.base && !status.base.ok && status.base.message && (
+                <p className="rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  当前数据表检查结果：{status.base.message}
+                </p>
+              )}
+              <div className="space-y-3">
+                <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">方式一：扫码一键创建（推荐）</p>
+                    <p className="text-xs text-muted-foreground">
+                      新建最小权限应用并自动建表，表格以「可管理」权限共享给你，在飞书云空间直接可见
+                    </p>
+                  </div>
+                  <Button size="sm" onClick={startScan} className="shrink-0">
+                    <ScanLine className="h-4 w-4" />
+                    开始扫码
+                  </Button>
+                </div>
+                <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">方式二：用已配置的应用自动创建</p>
+                    <p className="text-xs text-muted-foreground">
+                      用当前环境变量里的应用一键建表；表格由应用账号持有，不会出现在你的飞书云空间（数据读写不受影响）
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={retryInit}
+                    disabled={initBusy}
+                    className="shrink-0"
+                  >
+                    {initBusy ? <Spinner /> : <Wand2 className="h-4 w-4" />}
+                    自动创建数据表
+                  </Button>
+                </div>
+                <details className="group rounded-md border p-3">
+                  <summary className="cursor-pointer list-none text-sm font-medium">
+                    方式三：手动创建（表格在你自己的飞书空间）▸
+                  </summary>
+                  <ManualGuide />
+                </details>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {phase === 'scanning' && (
           <Card>
             <CardContent className="flex flex-col items-center gap-4 p-6">
@@ -235,8 +296,9 @@ export function SetupWizard({
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     多维表格「{scanPollResult?.baseName ?? '闲记'}」已创建
-                    {scanPollResult?.sharedTo ? '，并已共享给你（可管理）' : ''}
-                    ，你可以在飞书云空间直接打开它。
+                    {scanPollResult?.sharedTo
+                      ? '，并已共享给你（可管理），你可以在飞书云空间直接打开它。'
+                      : '。该表格由应用账号持有，不会出现在你的飞书云空间列表（数据读写不受影响）；如需在飞书中直接查看，可改用扫码或手动方式创建。'}
                   </p>
                 )}
                 <EnvVarsPanel env={scanPollResult?.env} />
@@ -277,6 +339,7 @@ function Step({ done, label }: { done: boolean; label: string }) {
 }
 
 function EnvVarsPanel({ env }: { env?: ScanPoll['env'] }) {
+  const [copiedAll, setCopiedAll] = React.useState(false);
   if (!env) return null;
   const rows: Array<[string, string]> = [
     ['FEISHU_APP_ID', env.FEISHU_APP_ID],
@@ -284,6 +347,13 @@ function EnvVarsPanel({ env }: { env?: ScanPoll['env'] }) {
   ];
   if (env.FEISHU_BASE_TOKEN) rows.push(['FEISHU_BASE_TOKEN', env.FEISHU_BASE_TOKEN]);
   if (env.FEISHU_DOMAIN && env.FEISHU_DOMAIN !== 'feishu') rows.push(['FEISHU_DOMAIN', env.FEISHU_DOMAIN]);
+  const dotenvText = rows.map(([k, v]) => `${k}=${v}`).join('\n');
+  const copyAll = () => {
+    void navigator.clipboard.writeText(dotenvText).then(() => {
+      setCopiedAll(true);
+      window.setTimeout(() => setCopiedAll(false), 1500);
+    });
+  };
   return (
     <div className="space-y-2">
       {rows.map(([k, v]) => (
@@ -301,6 +371,12 @@ function EnvVarsPanel({ env }: { env?: ScanPoll['env'] }) {
           </Button>
         </div>
       ))}
+      <div className="flex justify-end">
+        <Button variant="ghost" size="sm" onClick={copyAll}>
+          <ClipboardCopy className="h-3.5 w-3.5" />
+          {copiedAll ? '已复制' : '复制全部（.env 格式）'}
+        </Button>
+      </div>
     </div>
   );
 }

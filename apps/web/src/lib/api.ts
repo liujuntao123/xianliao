@@ -24,21 +24,50 @@ export class ApiError extends Error {
   }
 }
 
+// ---- 在途请求计数：驱动全局 loading 过渡（顶部进度条等） ----
+
+let pendingCount = 0;
+const pendingListeners = new Set<() => void>();
+
+export function getPendingCount(): number {
+  return pendingCount;
+}
+
+/** 订阅在途请求数变化；立即回调一次，返回取消订阅函数 */
+export function subscribePending(fn: () => void): () => void {
+  pendingListeners.add(fn);
+  fn();
+  return () => {
+    pendingListeners.delete(fn);
+  };
+}
+
+function notifyPending() {
+  for (const fn of pendingListeners) fn();
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${getAccessKey()}`,
-      ...init?.headers,
-    },
-  });
-  if (res.status === 204) return undefined as T;
-  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) {
-    throw new ApiError(res.status, (body.error as string) ?? `请求失败（${res.status}）`, body);
+  pendingCount++;
+  notifyPending();
+  try {
+    const res = await fetch(path, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${getAccessKey()}`,
+        ...init?.headers,
+      },
+    });
+    if (res.status === 204) return undefined as T;
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      throw new ApiError(res.status, (body.error as string) ?? `请求失败（${res.status}）`, body);
+    }
+    return body as T;
+  } finally {
+    pendingCount--;
+    notifyPending();
   }
-  return body as T;
 }
 
 // ---- 类型（与 packages/core/src/types.ts 对应） ----
@@ -51,8 +80,10 @@ export interface Task {
   id: string;
   listId: string;
   title: string;
+  description: string;
   completed: boolean;
   dueDate: number | null;
+  tags: string[];
   createdAt: number;
 }
 export interface Subtask {
@@ -66,6 +97,7 @@ export interface Note {
   id: string;
   title: string;
   content: string;
+  tags: string[];
   modifiedAt: number;
 }
 export interface AppData {
@@ -116,10 +148,26 @@ export const api = {
     request('/api/lists/' + id, { method: 'PATCH', body: JSON.stringify({ name }) }),
   deleteList: (id: string) => request('/api/lists/' + id, { method: 'DELETE' }),
 
-  createTask: (listId: string, title: string, dueDate?: number | null) =>
-    request('/api/tasks', { method: 'POST', body: JSON.stringify({ listId, title, dueDate }) }),
-  updateTask: (id: string, patch: { title?: string; completed?: boolean; dueDate?: number | null; listId?: string }) =>
-    request('/api/tasks/' + id, { method: 'PATCH', body: JSON.stringify(patch) }),
+  createTask: (
+    listId: string,
+    title: string,
+    extra?: { dueDate?: number | null; description?: string; tags?: string[] },
+  ) =>
+    request('/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ listId, title, ...extra }),
+    }),
+  updateTask: (
+    id: string,
+    patch: {
+      title?: string;
+      description?: string;
+      completed?: boolean;
+      dueDate?: number | null;
+      tags?: string[];
+      listId?: string;
+    },
+  ) => request('/api/tasks/' + id, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteTask: (id: string) => request('/api/tasks/' + id, { method: 'DELETE' }),
 
   createSubtask: (taskId: string, title: string) =>
@@ -128,9 +176,9 @@ export const api = {
     request('/api/subtasks/' + id, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteSubtask: (id: string) => request('/api/subtasks/' + id, { method: 'DELETE' }),
 
-  createNote: (title: string, content: string) =>
-    request('/api/notes', { method: 'POST', body: JSON.stringify({ title, content }) }),
-  updateNote: (id: string, patch: { title?: string; content?: string }) =>
+  createNote: (title: string, content: string, tags?: string[]) =>
+    request('/api/notes', { method: 'POST', body: JSON.stringify({ title, content, tags }) }),
+  updateNote: (id: string, patch: { title?: string; content?: string; tags?: string[] }) =>
     request('/api/notes/' + id, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteNote: (id: string) => request('/api/notes/' + id, { method: 'DELETE' }),
 };

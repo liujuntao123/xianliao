@@ -22,11 +22,26 @@ function toMs(v: string | number | undefined): number {
   return n < 1e12 ? n * 1000 : n;
 }
 
+/**
+ * 解析关联字段的第一个关联记录 id。
+ * 双向关联（type 21）读取形态：[{ record_ids: ['recX'], table_id, text, ... }]；
+ * 单向关联（type 18）/部分接口形态：['recX'] 或 [{ record_id: 'recX' }]。
+ */
 function firstLink(v: unknown): string {
   if (Array.isArray(v) && v.length > 0) {
-    const head = v[0] as { record_id?: string; id?: string } | string;
+    const head = v[0]!;
     if (typeof head === 'string') return head;
-    if (head && typeof head === 'object') return head.record_id ?? head.id ?? '';
+    if (Array.isArray(head)) return firstLink(head);
+    if (head && typeof head === 'object') {
+      const o = head as { record_id?: string; id?: string; record_ids?: unknown[] };
+      if (typeof o.record_ids === 'string') return o.record_ids;
+      if (Array.isArray(o.record_ids) && o.record_ids.length > 0) {
+        const first = o.record_ids[0];
+        return typeof first === 'string' ? first : firstLink(o.record_ids);
+      }
+      if (typeof o.record_id === 'string') return o.record_id;
+      if (typeof o.id === 'string') return o.id;
+    }
   }
   return '';
 }
@@ -43,6 +58,20 @@ function text(v: unknown): string {
       .join('');
   }
   return typeof v === 'string' ? v : '';
+}
+
+/**
+ * 多选字段读取：['a','b'] 或 [{type:'text', text:'a'}, ...] → 去重后的标签名数组。
+ */
+function tagList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const item of v) {
+    const s = typeof item === 'string' ? item : text([item]);
+    const t = s.trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
 }
 
 export class Repo {
@@ -129,8 +158,10 @@ export class Repo {
         id: r.record_id,
         listId: firstLink(r.fields[F.taskList]),
         title: text(r.fields[F.taskTitle]),
+        description: text(r.fields[F.description]),
         completed: r.fields[F.completed] === true,
         dueDate: typeof r.fields[F.dueDate] === 'number' ? (r.fields[F.dueDate] as number) : null,
+        tags: tagList(r.fields[F.tags]),
         createdAt: toMs(r.created_time),
       }))
       .filter((t) => listIds.has(t.listId) && t.title !== '');
@@ -151,6 +182,7 @@ export class Repo {
         id: r.record_id,
         title: text(r.fields[F.noteTitle]),
         content: text(r.fields[F.noteContent]),
+        tags: tagList(r.fields[F.tags]),
         modifiedAt: toMs(r.last_modified_time),
       }))
       .filter((n) => n.title !== '' || n.content !== '');
@@ -184,7 +216,13 @@ export class Repo {
 
   // ---------- 任务 ----------
 
-  async createTask(input: { listId: string; title: string; dueDate?: number | null }): Promise<void> {
+  async createTask(input: {
+    listId: string;
+    title: string;
+    description?: string;
+    dueDate?: number | null;
+    tags?: string[];
+  }): Promise<void> {
     const ids = await this.tableIds();
     const all = await this.getAll();
     if (!all.lists.some((l) => l.id === input.listId)) {
@@ -192,7 +230,9 @@ export class Repo {
     }
     const fields: Record<string, unknown> = {
       [F.taskTitle]: input.title,
+      [F.description]: input.description ?? '',
       [F.completed]: false,
+      [F.tags]: input.tags ?? [],
       [F.taskList]: [input.listId],
     };
     if (input.dueDate != null) fields[F.dueDate] = input.dueDate;
@@ -201,13 +241,22 @@ export class Repo {
 
   async updateTask(
     id: string,
-    patch: { title?: string; completed?: boolean; dueDate?: number | null; listId?: string },
+    patch: {
+      title?: string;
+      description?: string;
+      completed?: boolean;
+      dueDate?: number | null;
+      tags?: string[];
+      listId?: string;
+    },
   ): Promise<void> {
     const ids = await this.tableIds();
     const fields: Record<string, unknown> = {};
     if (patch.title !== undefined) fields[F.taskTitle] = patch.title;
+    if (patch.description !== undefined) fields[F.description] = patch.description;
     if (patch.completed !== undefined) fields[F.completed] = patch.completed;
     if (patch.dueDate !== undefined) fields[F.dueDate] = patch.dueDate; // null=清空
+    if (patch.tags !== undefined) fields[F.tags] = patch.tags; // []=清空标签
     if (patch.listId !== undefined) {
       const all = await this.getAll();
       if (!all.lists.some((l) => l.id === patch.listId)) throw new AppError(400, '目标清单不存在');
@@ -254,16 +303,21 @@ export class Repo {
 
   // ---------- 笔记 ----------
 
-  async createNote(title: string, content: string): Promise<void> {
+  async createNote(title: string, content: string, tags?: string[]): Promise<void> {
     const ids = await this.tableIds();
-    await this.createRecord(ids.notes, { [F.noteTitle]: title, [F.noteContent]: content });
+    await this.createRecord(ids.notes, {
+      [F.noteTitle]: title,
+      [F.noteContent]: content,
+      [F.tags]: tags ?? [],
+    });
   }
 
-  async updateNote(id: string, patch: { title?: string; content?: string }): Promise<void> {
+  async updateNote(id: string, patch: { title?: string; content?: string; tags?: string[] }): Promise<void> {
     const ids = await this.tableIds();
     const fields: Record<string, unknown> = {};
     if (patch.title !== undefined) fields[F.noteTitle] = patch.title;
     if (patch.content !== undefined) fields[F.noteContent] = patch.content;
+    if (patch.tags !== undefined) fields[F.tags] = patch.tags;
     if (Object.keys(fields).length === 0) return;
     await this.updateRecord(ids.notes, id, fields);
   }

@@ -26,9 +26,13 @@ export interface Task {
   id: string;
   listId: string;
   title: string;
+  /** 补充描述（可选，多行纯文本）。 */
+  description: string;
   completed: boolean;
   /** 可选截止日期（epoch 毫秒，通常为某日零点）。 */
   dueDate: number | null;
+  /** 标签名数组（多维表格多选字段，写入新选项时飞书自动创建）。 */
+  tags: string[];
   createdAt: number;
 }
 
@@ -44,6 +48,8 @@ export interface Note {
   id: string;
   title: string;
   content: string;
+  /** 标签名数组（与任务共用同一套标签命名空间）。 */
+  tags: string[];
   modifiedAt: number;
 }
 

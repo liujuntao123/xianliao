@@ -141,7 +141,11 @@ export function createApp(config: AppConfig): Hono {
     return c.json(await initializeWithCredentials(s.appId, s.appSecret, s.openId, s.brand));
   });
 
-  /** 初始化重试（扫码成功但初始化失败时，前端持凭证重试）。 */
+  /**
+   * 初始化重试（扫码成功但初始化失败时，前端持凭证重试）。
+   * 无 body（或不带凭证）时，使用已配置的环境变量凭证——支持「手动路径配好
+   * 应用后，一键用该应用创建数据表」。
+   */
   app.post('/api/setup/init', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       appId?: string;
@@ -149,9 +153,13 @@ export function createApp(config: AppConfig): Hono {
       openId?: string;
       domain?: string;
     };
-    if (!body.appId || !body.appSecret) throw new AppError(400, '缺少 appId/appSecret');
+    const appId = body.appId || config.feishuAppId;
+    const appSecret = body.appSecret || config.feishuAppSecret;
+    if (!appId || !appSecret) {
+      throw new AppError(400, '缺少 appId/appSecret（body 未提供且环境变量未配置应用凭证）');
+    }
     return c.json(
-      await initializeWithCredentials(body.appId, body.appSecret, body.openId, config.feishuDomain),
+      await initializeWithCredentials(appId, appSecret, body.openId, config.feishuDomain),
     );
   });
 
@@ -185,12 +193,24 @@ export function createApp(config: AppConfig): Hono {
       };
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
+      const payload: Record<string, unknown> = e instanceof AppError ? { ...e.payload } : {};
+      // 建表最常见失败：应用未开通 bitable:app 权限（飞书泛化为 2200 等错误）。
+      // 补直达开发者后台「权限管理」的链接，向导可渲染「去开通权限」入口。
+      if (!payload.consoleUrl) {
+        const host = domain === 'lark' ? 'https://open.larksuite.com' : 'https://open.feishu.cn';
+        payload.consoleUrl = `${host}/app/${appId}/safe`;
+      }
+      const feishuCode = (payload.feishu as { code?: number } | undefined)?.code;
+      const message =
+        feishuCode === 2200
+          ? '创建多维表格被飞书拒绝（2200）：请确认应用已开通 bitable:app 权限，且已发布版本使权限生效'
+          : err.message;
       return {
         status: 'success',
         env,
         initError: {
-          message: err.message,
-          ...(e instanceof AppError ? e.payload : {}),
+          message,
+          ...payload,
         },
       };
     }
@@ -223,6 +243,19 @@ export function createApp(config: AppConfig): Hono {
 
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v.trim() : undefined);
 
+  /** 标签数组校验：trim、去重、去空；非数组返回 undefined（不更新）。 */
+  const tags = (v: unknown): string[] | undefined => {
+    if (!Array.isArray(v)) return undefined;
+    const out: string[] = [];
+    for (const item of v) {
+      if (typeof item !== 'string') continue;
+      const t = item.trim().slice(0, 50);
+      if (t && !out.includes(t)) out.push(t);
+    }
+    if (out.length > 20) throw new AppError(400, '标签最多 20 个');
+    return out;
+  };
+
   // 清单
   app.post('/api/lists', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { name?: string };
@@ -247,7 +280,9 @@ export function createApp(config: AppConfig): Hono {
     const body = (await c.req.json().catch(() => ({}))) as {
       listId?: string;
       title?: string;
+      description?: string;
       dueDate?: number | null;
+      tags?: unknown;
     };
     const title = str(body.title);
     if (!title) throw new AppError(400, '任务标题不能为空');
@@ -255,18 +290,30 @@ export function createApp(config: AppConfig): Hono {
     await requireRepo().createTask({
       listId: body.listId,
       title,
+      description: typeof body.description === 'string' ? body.description : '',
       dueDate: body.dueDate ?? null,
+      tags: tags(body.tags) ?? [],
     });
     return c.json({ ok: true }, 201);
   });
   app.patch('/api/tasks/:id', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       title?: string;
+      description?: string;
       completed?: boolean;
       dueDate?: number | null;
+      tags?: unknown;
       listId?: string;
     };
-    await requireRepo().updateTask(c.req.param('id'), body);
+    const taskTags = tags(body.tags);
+    await requireRepo().updateTask(c.req.param('id'), {
+      title: body.title,
+      description: body.description,
+      completed: body.completed,
+      dueDate: body.dueDate,
+      listId: body.listId,
+      ...(taskTags !== undefined ? { tags: taskTags } : {}),
+    });
     return c.json({ ok: true });
   });
   app.delete('/api/tasks/:id', async (c) => {
@@ -295,15 +342,32 @@ export function createApp(config: AppConfig): Hono {
 
   // 笔记
   app.post('/api/notes', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { title?: string; content?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      title?: string;
+      content?: string;
+      tags?: unknown;
+    };
     const title = str(body.title);
     if (!title) throw new AppError(400, '笔记标题不能为空');
-    await requireRepo().createNote(title, typeof body.content === 'string' ? body.content : '');
+    await requireRepo().createNote(
+      title,
+      typeof body.content === 'string' ? body.content : '',
+      tags(body.tags) ?? [],
+    );
     return c.json({ ok: true }, 201);
   });
   app.patch('/api/notes/:id', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { title?: string; content?: string };
-    await requireRepo().updateNote(c.req.param('id'), body);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      title?: string;
+      content?: string;
+      tags?: unknown;
+    };
+    const noteTags = tags(body.tags);
+    await requireRepo().updateNote(c.req.param('id'), {
+      title: body.title,
+      content: body.content,
+      ...(noteTags !== undefined ? { tags: noteTags } : {}),
+    });
     return c.json({ ok: true });
   });
   app.delete('/api/notes/:id', async (c) => {

@@ -10,6 +10,9 @@ import { fileURLToPath } from 'node:url';
 import { config as loadDotenv } from 'dotenv';
 import { createApp, parseFeishuDomain } from '@xianji/core';
 
+// pnpm --filter 会在 apps/server-node 下执行，cwd 不在仓库根；
+// 先尝试仓库根 .env（README 约定位置），不存在时回退到 cwd 的 .env。
+loadDotenv({ path: fileURLToPath(new URL('../../../.env', import.meta.url)), quiet: true });
 loadDotenv({ quiet: true });
 
 const port = Number(process.env.PORT ?? 3000);

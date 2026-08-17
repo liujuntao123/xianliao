@@ -20,6 +20,42 @@ export type Query = Record<string, string | number | undefined>;
 /** 实例级 token 缓存（Serverless 冷启动时自然为空，届时现取）。 */
 const tokenCache = new Map<string, { token: string; expireAt: number }>();
 
+// ---------- 瞬时错误自动重试 ----------
+// 飞书侧偶发 2200 Internal Error / 1254002 Fail / 99991400 限频，以及网关 5xx、
+// 网络抖动，重试一次通常即可恢复。凭证/权限类错误不重试，快速失败。
+
+const MAX_RETRIES = 2;
+/** 已知瞬时业务码：飞书内部错误、瞬时 Fail、请求过频（退避后可恢复）。 */
+const TRANSIENT_FEISHU_CODES = new Set([2200, 1254002, 99991400]);
+const TRANSIENT_HTTP_STATUS = new Set([500, 502, 503, 504]);
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** 指数退避 + 抖动：约 400ms、1200ms（避免同频重试风暴）。 */
+const backoffMs = (attempt: number) => 400 * 2 ** attempt + Math.random() * 200;
+
+/**
+ * 带重试的 fetch：网络层异常与 HTTP 5xx 自动重试。
+ * 注意：5xx 在此层完全消化（重试耗尽后原样返回响应），上层只重试业务码，避免叠加放大。
+ */
+async function fetchTransientRetry(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      if (TRANSIENT_HTTP_STATUS.has(res.status) && attempt < MAX_RETRIES) {
+        await sleep(backoffMs(attempt));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      if (e instanceof TypeError && attempt < MAX_RETRIES) {
+        await sleep(backoffMs(attempt));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 export class FeishuClient {
   constructor(private creds: FeishuCredentials) {}
 
@@ -31,14 +67,17 @@ export class FeishuClient {
     const cached = tokenCache.get(this.creds.appId);
     if (cached && cached.expireAt > Date.now()) return cached.token;
 
-    const res = await fetch(`${this.host()}/open-apis/auth/v3/tenant_access_token/internal`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        app_id: this.creds.appId,
-        app_secret: this.creds.appSecret,
-      }),
-    });
+    const res = await fetchTransientRetry(
+      `${this.host()}/open-apis/auth/v3/tenant_access_token/internal`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          app_id: this.creds.appId,
+          app_secret: this.creds.appSecret,
+        }),
+      },
+    );
     const data = (await res.json()) as {
       code: number;
       msg: string;
@@ -61,7 +100,7 @@ export class FeishuClient {
     return data.tenant_access_token;
   }
 
-  /** 调用飞书 OpenAPI，非 0 code 一律抛 AppError（携带 missing scope 信息）。 */
+  /** 调用飞书 OpenAPI，非 0 code 一律抛 AppError（携带 missing scope 信息）。瞬时错误自动重试。 */
   private async request<T>(method: string, path: string, body: unknown, query?: Query): Promise<T> {
     const token = await this.getTenantToken();
     let url = `${this.host()}${path}`;
@@ -73,23 +112,34 @@ export class FeishuClient {
       const s = qs.toString();
       if (s) url += '?' + s;
     }
-    const res = await fetch(url, {
+    const init: RequestInit = {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const data = (await res.json().catch(() => ({ code: res.status, msg: res.statusText }))) as {
-      code: number;
-      msg: string;
-      [k: string]: unknown;
     };
-    if (data.code !== 0) {
-      throw toAppError(data, res.status);
+
+    // 业务码重试（网络/5xx 已由 fetchTransientRetry 处理）
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetchTransientRetry(url, init);
+      const data = (await res.json().catch(() => ({ code: res.status, msg: res.statusText }))) as {
+        code: number;
+        msg: string;
+        [k: string]: unknown;
+      };
+      if (data.code !== 0) {
+        if (TRANSIENT_FEISHU_CODES.has(data.code) && attempt < MAX_RETRIES) {
+          await sleep(backoffMs(attempt));
+          continue;
+        }
+        const err = toAppError(data, res.status);
+        if (attempt > 0) err.message += `（已自动重试 ${attempt + 1} 次仍失败）`;
+        throw err;
+      }
+      return data as T;
     }
-    return data as T;
   }
 
   get<T = unknown>(path: string, query?: Query): Promise<T> {
