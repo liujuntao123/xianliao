@@ -1,9 +1,10 @@
 /**
- * Vercel 适配器：hono/vercel 把 Web 标准 Hono 应用转成 Vercel Node 函数的 (req, res) 处理器。
+ * Vercel 适配器：catch-all 函数承载全部 /api/* 路由。
+ * Vercel Node 运行时对默认导出按老式 (req, res) 签名调用；Web 标准 (Request) => Response
+ * 必须用命名导出（GET/POST/...），故将 Hono 应用按方法逐一导出。
  * 静态 SPA 由 vercel.json 的 outputDirectory 提供，未命中路径回退 index.html（已排除 /api 前缀）。
  */
 import { createApp, parseFeishuDomain } from '@xianji/core';
-import { handle } from 'hono/vercel';
 
 // Vercel 函数实例内 process.env 固定（每次部署生成新实例），模块级初始化即可
 const app = createApp({
@@ -14,4 +15,9 @@ const app = createApp({
   feishuDomain: parseFeishuDomain(process.env.FEISHU_DOMAIN),
 });
 
-export default handle(app);
+export const GET = app.fetch;
+export const POST = app.fetch;
+export const PUT = app.fetch;
+export const PATCH = app.fetch;
+export const DELETE = app.fetch;
+export const HEAD = app.fetch;
