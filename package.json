@@ -15,7 +15,8 @@
     "test": "pnpm --filter @xianji/core test"
   },
   "dependencies": {
-    "@xianji/core": "workspace:*"
+    "@xianji/core": "workspace:*",
+    "hono": "^4.6.0"
   },
   "devDependencies": {
     "typescript": "^5.5.0"
