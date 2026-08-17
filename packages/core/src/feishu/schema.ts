@@ -12,8 +12,8 @@
  * 初始化幂等：已存在的表/字段跳过；缺失的补建。顺手清掉新建 Base
  * 自带的空默认表，并写入默认清单「收集箱」。
  */
-import { AppError } from '../types';
-import { FeishuClient } from './client';
+import { AppError } from '../types.js';
+import { FeishuClient } from './client.js';
 
 export const BASE_NAME = '闲记';
 export const DEFAULT_LIST_NAME = '收集箱';

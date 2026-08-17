@@ -9,7 +9,7 @@
  * 拼上 from/source/tp/name/desc/addons/createOnly 参数渲染成二维码。
  */
 
-import type { FeishuDomain } from '../types';
+import type { FeishuDomain } from '../types.js';
 
 const ACCOUNTS_HOSTS: Record<FeishuDomain, string> = {
   feishu: 'https://accounts.feishu.cn',

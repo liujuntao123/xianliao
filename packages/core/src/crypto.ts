@@ -6,7 +6,7 @@
  * 密钥由 ACCESS_KEY 派生（HKDF-SHA256），不引入新的环境变量。
  * 使用 Web Crypto（Node 20 / Workers / 浏览器通用）。
  */
-import type { FeishuDomain } from './types';
+import type { FeishuDomain } from './types.js';
 
 export interface SealedScanState {
   deviceCode: string;

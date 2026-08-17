@@ -1,9 +1,9 @@
 /**
  * Base 生命周期：创建 / 按名自动发现 / full_access 共享给用户 / 一站式初始化。
  */
-import { AppError, type FeishuDomain } from '../types';
-import { FeishuClient } from './client';
-import { BASE_NAME, ensureSchema } from './schema';
+import { AppError, type FeishuDomain } from '../types.js';
+import { FeishuClient } from './client.js';
+import { BASE_NAME, ensureSchema } from './schema.js';
 
 export interface InitResult {
   baseToken: string;

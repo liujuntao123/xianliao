@@ -3,10 +3,10 @@
  * 读取策略：单用户数据量小，全量拉取（分页聚合）+ 内存组装。
  * 记录 meta 的 created_time / last_modified_time 单位为秒，统一转为毫秒。
  */
-import { AppError, type AppData, type List, type Note, type Subtask, type Task } from './types';
-import { FeishuClient } from './feishu/client';
-import { F, getSchema, type SchemaTableIds } from './feishu/schema';
-import { resolveBaseToken } from './feishu/base';
+import { AppError, type AppData, type List, type Note, type Subtask, type Task } from './types.js';
+import { FeishuClient } from './feishu/client.js';
+import { F, getSchema, type SchemaTableIds } from './feishu/schema.js';
+import { resolveBaseToken } from './feishu/base.js';
 
 interface RawRecord {
   record_id: string;

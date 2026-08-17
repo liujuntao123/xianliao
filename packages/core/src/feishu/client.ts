@@ -2,7 +2,7 @@
  * 飞书 OpenAPI 客户端：tenant_access_token 管理（实例内存缓存 + 冷启动现取）
  * 与统一调用封装（错误归一化为 AppError）。
  */
-import { AppError, type FeishuDomain } from '../types';
+import { AppError, type FeishuDomain } from '../types.js';
 
 export const OPENAPI_HOSTS: Record<FeishuDomain, string> = {
   feishu: 'https://open.feishu.cn',

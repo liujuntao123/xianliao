@@ -5,17 +5,17 @@
  * 若 ACCESS_KEY 未设置，一律 503（部署未完成，不泄露任何信息）。
  */
 import { Hono } from 'hono';
-import { AppError, type AppConfig } from './types';
-import { safeEqual, sealState, unsealState } from './crypto';
-import { FeishuClient, forgetTokenCache } from './feishu/client';
-import { beginRegistration, pollRegistration } from './feishu/device-flow';
+import { AppError, type AppConfig } from './types.js';
+import { safeEqual, sealState, unsealState } from './crypto.js';
+import { FeishuClient, forgetTokenCache } from './feishu/client.js';
+import { beginRegistration, pollRegistration } from './feishu/device-flow.js';
 import {
   createBaseWithSchema,
   forgetDiscoveredCache,
   resolveBaseToken,
-} from './feishu/base';
-import { forgetSchemaCache, getSchema } from './feishu/schema';
-import { Repo } from './repo';
+} from './feishu/base.js';
+import { forgetSchemaCache, getSchema } from './feishu/schema.js';
+import { Repo } from './repo.js';
 
 export function createApp(config: AppConfig): Hono {
   const app = new Hono();
