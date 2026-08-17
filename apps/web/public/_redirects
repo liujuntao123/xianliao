@@ -1,0 +1,4 @@
+# Cloudflare Pages 路由：/api/* 直通 Pages Functions（functions/api/[[route]].ts），
+# 其余未命中静态资源的路径回退 index.html（SPA）。
+/api/* /api/:splat 200
+/* /index.html 200

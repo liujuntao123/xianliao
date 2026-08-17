@@ -26,6 +26,7 @@ packages/core       后端核心：Hono（Web 标准 API，平台无关）
   └─ 仓库层（领域实体 ↔ 多维表格记录映射）
 apps/server-node    Docker/自托管适配器（@hono/node-server，静态托管 SPA）
 api/[[...route]].ts Vercel 适配器（catch-all 函数）
+functions/api/[[route]].ts Cloudflare Pages 适配器（Pages Functions）
 workers/xianji.ts   Cloudflare Workers 适配器（Static Assets + worker 处理 /api/*）
 ```
 
@@ -64,6 +65,7 @@ docker run -d -p 3000:3000 \
 ## 部署到 Vercel / Cloudflare
 
 - **Vercel**：导入仓库直接部署（`vercel.json` 已配置构建与 SPA 回退），在项目环境变量中设置 `ACCESS_KEY` 等变量后 Redeploy。
+- **Cloudflare Pages**：在 Dashboard 连接 GitHub 仓库创建 Pages 项目，构建配置如下——Build command `pnpm build`、Build output directory `apps/web/dist`、production branch `master`；`functions/api/[[route]].ts` 自动承载 `/api/*`，SPA 回退由 `apps/web/public/_redirects` 提供。变量在 Settings → Environment variables 设置（建议仅设 Production，公开仓库的 PR 预览环境勿放凭证）。
 - **Cloudflare Workers**：`pnpm build` 后 `npx wrangler deploy`（`wrangler.jsonc` 已配置 Static Assets 与 `/api/*` worker 优先）。变量用 `wrangler secret put` 或控制台设置。
 
 ## 环境变量
