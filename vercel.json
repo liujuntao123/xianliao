@@ -3,7 +3,7 @@
   "buildCommand": "pnpm install && pnpm --filter @xianji/core build && pnpm --filter @xianji/web build",
   "outputDirectory": "apps/web/dist",
   "functions": {
-    "api/[[...route]].ts": {
+    "api/[...route].ts": {
       "maxDuration": 60
     }
   },

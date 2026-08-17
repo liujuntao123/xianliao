@@ -27,7 +27,7 @@ packages/core       后端核心：Hono（Web 标准 API，平台无关）
   ├─ Base 生命周期（创建 / 按名发现 / full_access 共享 / 四表幂等初始化）
   └─ 仓库层（领域实体 ↔ 多维表格记录映射）
 apps/server-node    Docker/自托管适配器（@hono/node-server，静态托管 SPA）
-api/[[...route]].ts Vercel 适配器（catch-all 函数）
+api/[...route].ts   Vercel 适配器（catch-all 函数）
 functions/api/[[route]].ts Cloudflare Pages 适配器（Pages Functions）
 workers/xianji.ts   Cloudflare Workers 适配器（Static Assets + worker 处理 /api/*）
 ```
